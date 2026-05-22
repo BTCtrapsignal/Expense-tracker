@@ -132,6 +132,27 @@ class Storage:
         self._conn.commit()
         return entry
 
+    def get_week(self, monday_iso: str, sunday_iso: str, chat_id: int = 0) -> list[dict]:
+        """Return all entries between monday and sunday inclusive, ordered by day then id."""
+        if chat_id:
+            rows = self._conn.execute(
+                "SELECT * FROM entries WHERE day>=? AND day<=? AND chat_id=? ORDER BY day, id",
+                (monday_iso, sunday_iso, chat_id),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM entries WHERE day>=? AND day<=? ORDER BY day, id",
+                (monday_iso, sunday_iso),
+            ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+    def get_distinct_chat_ids(self) -> list[int]:
+        """Return all unique chat_ids that have entries (for scheduled broadcast)."""
+        rows = self._conn.execute(
+            "SELECT DISTINCT chat_id FROM entries WHERE chat_id != 0"
+        ).fetchall()
+        return [r[0] for r in rows]
+
     def get_date(self, iso_date: str, chat_id: int = 0) -> list[dict]:
         if chat_id:
             rows = self._conn.execute(

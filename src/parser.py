@@ -80,7 +80,7 @@ def _try_parse_body(merchant_code: str, amount_str: str, card_code: str,
 
 
 def parse_entry(text: str) -> dict | None:
-    text = text.strip()
+    text = text.strip().lower()   # normalize — supports G.157.KS, SH.12000/6.S etc.
     if not text:
         return None
 
