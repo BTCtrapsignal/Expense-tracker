@@ -12,21 +12,28 @@ from excel_export import build_xlsx
 from weekly import week_bounds, build_weekly_xlsx, current_week_label
 from scheduler import setup_scheduler
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
+# ── Logging: stdout only, clean format for Railway ─────────────────────────
+import sys as _sys
+_handler = logging.StreamHandler(_sys.stdout)
+_handler.setFormatter(logging.Formatter(
+    fmt="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
-)
-# Suppress noisy polling / HTTP logs
+))
+logging.root.setLevel(logging.INFO)
+logging.root.handlers = [_handler]   # replace any default stderr handler
+
+# Suppress noisy library logs — these would otherwise appear red in Railway
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("telegram").setLevel(logging.WARNING)
+logging.getLogger("telegram.ext").setLevel(logging.WARNING)
 logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN          = os.environ["TELEGRAM_BOT_TOKEN"]
-AUTHORIZED_CHAT_ID = int(os.environ.get("AUTHORIZED_CHAT_ID", 0))
+# Keep as string — Telegram chat_id comes in as int, cast both sides at compare
+AUTHORIZED_CHAT_ID = os.environ.get("AUTHORIZED_CHAT_ID", "").strip()
 
 storage = Storage()
 
@@ -126,9 +133,9 @@ Auto: Weekly summary sent every Sunday 23:00\
 # ── Auth ───────────────────────────────────────────────────────────────────
 
 def is_authorized(update: Update) -> bool:
-    if AUTHORIZED_CHAT_ID == 0:
+    if not AUTHORIZED_CHAT_ID:          # empty string = open access
         return True
-    return update.effective_chat.id == AUTHORIZED_CHAT_ID
+    return str(update.effective_chat.id) == AUTHORIZED_CHAT_ID
 
 
 def chat_id(update: Update) -> int:
