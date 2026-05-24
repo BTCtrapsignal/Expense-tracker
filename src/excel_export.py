@@ -18,6 +18,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 from cards import CARD_ORDER
+from formatter import _merge_normals
 
 
 # ── colour palette ──────────────────────────────────────────────────────────
@@ -89,7 +90,8 @@ def build_xlsx(entries: list[dict]) -> bytes:
         ws.row_dimensions[row].height = 20
         row += 1
 
-        # ── Entries ─────────────────────────────────────────────────────────
+        # ── Entries — merge normal rows with same merchant ──────────────────
+        card_entries = _merge_normals(card_entries)
         for i, e in enumerate(card_entries):
             bg = ALT_BG if i % 2 == 0 else NORMAL_BG
 

@@ -9,7 +9,8 @@ from parser import parse_entry
 from storage import Storage
 from formatter import format_sum, format_today
 from excel_export import build_xlsx
-from weekly import week_bounds, build_weekly_xlsx, current_week_label
+from weekly import (week_bounds, build_weekly_xlsx, current_week_label,
+                    month_bounds, build_monthly_xlsx, current_month_label)
 from scheduler import setup_scheduler
 
 # ── Logging: stdout only, clean format for Railway ─────────────────────────
@@ -37,97 +38,55 @@ AUTHORIZED_CHAT_ID = os.environ.get("AUTHORIZED_CHAT_ID", "").strip()
 
 storage = Storage()
 
-GUIDE_TEXT = """\
-Cards:
-kt  = KTC
-ks  = Krungsri
-t   = TTB
-s   = SCB
-ktb = KTB
-kk  = Kbank
-bb  = Bangkok Bank
+# /guide  — short cheatsheet
+GUIDE_TEXT = """merchant.amount.card
+merchant.amount/months.card
+merchant.amount.card.note
 
-Food & Delivery:
-g   = Grab
-lm  = Line Man
-ff  = Fast Food
-fd  = Food
+Cards:   kt  ks  t  s
+         KTC Krungsri TTB SCB
 
-Convenience:
-7   = 7-Eleven
-law = Lawson
-tb  = True Bill
+Common:  g=Grab  lm=Line Man  sh=Shopee
+         7=7-Eleven  bts=BTS  ap=Apple
+         nk=Nike  nb=NB  ot=Other
 
-Shopping:
-sh  = Shopee
-tt  = TikTok Shop
-lz  = Lazada
+/guide full  — รายการทั้งหมด
+/month       — xlsx รายเดือน"""
 
-Shoes:
-nk  = Nike
-nb  = New Balance
-
-Tech:
-ap  = Apple
-cs  = Apple (ComSeven)
-
-Transport:
-bts = BTS
-mrt = MRT
-srt = SRT Red Line
-rl  = Railway
-
-Travel / Booking:
-ct  = Ctrip
-tlk = Traveloka
-agd = Agoda
-
-Health:
-dnt = Dental
-ph  = Pharmacy
-
-Lifestyle:
-op  = Origin Place
-sp  = Smart Plan
-mam = Thai Art Museum
-bc  = Bonchon
-meg = Mega Bangna
-sct = Central
-mk  = MK
-sw  = Swensen's
-cf  = Coffee
-rst = Restaurant
-
-Other:
-ot  = Other
-(หรือพิมพ์ชื่อตรงๆ เช่น mymall.500.ks)
-
-Syntax:
+# /guide full  — complete reference
+GUIDE_FULL_TEXT = """── Syntax ──
 merchant.amount.card
 merchant.full_amount/months.card
-merchant.amount.card.note    ← เพิ่มโน้ตได้
+merchant.amount.card.note
 
-Examples:
-g.157.ks
-lm.70.kt
-sh.12000/6.s
-ap.36000/12.kt
-bts.31.t
-ot.250.ks.parking
-ot.800.ks.ค่าจอดรถ
+── Cards ──
+kt=KTC  ks=Krungsri  t=TTB  s=SCB
+ktb=KTB  kk=Kbank  bb=Bangkok Bank
 
-Commands:
-/sum       — TAB text + .xlsx file
-/week      — This week's summary (on demand)
-/raw       — Today's raw shorthand entries
-/today     — Today's entries + totals
-/repeat N  — Clone latest N entries
-/undo      — Remove last entry
-/clear     — Clear all today's entries
-/guide     — This guide
+── Merchants ──
+Food:    g=Grab  lm=Line Man  ff=Fast Food  fd=Food
+Shop:    sh=Shopee  tt=TikTok  lz=Lazada
+Shoes:   nk=Nike  nb=New Balance
+Tech:    ap=Apple  cs=Apple(CS)
+Store:   7=7-Eleven  law=Lawson  tb=True Bill
+Transit: bts=BTS  mrt=MRT  srt=SRT  rl=Railway
+Travel:  ct=Ctrip  tlk=Traveloka  agd=Agoda
+Health:  dnt=Dental  ph=Pharmacy
+Eat:     bc=Bonchon  mk=MK  sw=Swensen's  cf=Coffee  rst=Restaurant
+Place:   op=Origin  meg=Mega Bangna  sct=Central  mam=Thai Art Museum
+Other:   ot=Other  (หรือพิมพ์ชื่อตรงๆ)
 
-Auto: Weekly summary sent every Sunday 23:00\
-"""
+── Commands ──
+/sum      TAB text + xlsx วันนี้
+/week     xlsx รายสัปดาห์
+/month    xlsx รายเดือน
+/today    สรุป + ยอดรวมวันนี้
+/raw      raw entries วันนี้
+/repeat N clone N entries ล่าสุด
+/undo     ลบ entry ล่าสุด
+/clear    ล้างวันนี้ทั้งหมด
+
+Auto: Weekly xlsx ทุกอาทิตย์ 23:00 BKK"""
 
 
 # ── Auth ───────────────────────────────────────────────────────────────────
@@ -301,10 +260,37 @@ async def handle_week(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def handle_month(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send this month's xlsx summary on demand."""
+    if not is_authorized(update):
+        return
+
+    today = date.today()
+    first, last = month_bounds(today)
+    entries = storage.get_month(first, last, chat_id=chat_id(update))
+
+    if not entries:
+        await update.message.reply_text("No entries this month.")
+        return
+
+    logger.info("CMD /month  chat=%s  entries=%d", chat_id(update), len(entries))
+
+    xlsx_bytes = build_monthly_xlsx(entries, today)
+    filename   = f"monthly_{today.strftime('%Y-%m')}.xlsx"
+    await update.message.reply_document(
+        document=InputFile(io.BytesIO(xlsx_bytes), filename=filename),
+        caption=f"📅 {current_month_label(today)} — {len(entries)} entries",
+    )
+
+
 async def handle_guide(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update):
         return
-    await update.message.reply_text(GUIDE_TEXT, parse_mode=None)
+    args = context.args
+    if args and args[0].lower() == "full":
+        await update.message.reply_text(GUIDE_FULL_TEXT, parse_mode=None)
+    else:
+        await update.message.reply_text(GUIDE_TEXT, parse_mode=None)
 
 
 async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -322,6 +308,7 @@ def main():
     app.add_handler(CommandHandler("undo",  handle_undo))
     app.add_handler(CommandHandler("clear", handle_clear))
     app.add_handler(CommandHandler("week",  handle_week))
+    app.add_handler(CommandHandler("month", handle_month))
     app.add_handler(CommandHandler("guide", handle_guide))
     app.add_handler(CommandHandler("help",  handle_help))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

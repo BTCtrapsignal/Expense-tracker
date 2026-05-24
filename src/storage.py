@@ -132,6 +132,20 @@ class Storage:
         self._conn.commit()
         return entry
 
+    def get_month(self, first_iso: str, last_iso: str, chat_id: int = 0) -> list[dict]:
+        """Return all entries for a calendar month, ordered by day then id."""
+        if chat_id:
+            rows = self._conn.execute(
+                "SELECT * FROM entries WHERE day>=? AND day<=? AND chat_id=? ORDER BY day, id",
+                (first_iso, last_iso, chat_id),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM entries WHERE day>=? AND day<=? ORDER BY day, id",
+                (first_iso, last_iso),
+            ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
     def get_week(self, monday_iso: str, sunday_iso: str, chat_id: int = 0) -> list[dict]:
         """Return all entries between monday and sunday inclusive, ordered by day then id."""
         if chat_id:

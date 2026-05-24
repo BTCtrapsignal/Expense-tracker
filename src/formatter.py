@@ -6,6 +6,10 @@ Installment row:        Merchant 1/N [TAB] full [TAB] monthly [TAB] Merchant 2/N
 All months on ONE single line — horizontal paste across Excel columns.
 
 ONLY real \t characters — never spaces for alignment.
+
+Merging rule (normal entries only):
+  Same merchant name + same card → merged into ONE row, amounts summed.
+  Installments are NEVER merged (each has distinct full/monthly amounts).
 """
 
 from cards import CARD_ORDER
@@ -22,12 +26,35 @@ def _fmt(value: float) -> str:
     return f"{value:.2f}".rstrip("0")
 
 
-def format_sum(entries: list[dict]) -> str:
-    """Return clean card-grouped TAB-separated output ready for Excel paste.
-
-    Normal row:      merchant \\t \\t amount
-    Installment row: merchant 1/N \\t full \\t monthly \\t merchant 2/N \\t ... (ONE line)
+def _merge_normals(entries: list[dict]) -> list[dict]:
     """
+    Merge normal entries with the same merchant name within a card.
+    Installments pass through unchanged.
+    Preserves card-level ordering: first occurrence of a merchant name
+    determines its position; subsequent same-name entries are folded in.
+    """
+    seen: dict[str, dict] = {}   # merchant_name → merged entry
+    order: list[str | int] = []  # track output order: str=merchant key, int=installment id
+
+    for e in entries:
+        if e["is_installment"]:
+            order.append(id(e))
+            seen[id(e)] = e
+        else:
+            key = e["merchant"]
+            if key in seen:
+                # Accumulate amount into existing merged entry
+                seen[key] = dict(seen[key])
+                seen[key]["amount"] = seen[key]["amount"] + e["amount"]
+            else:
+                seen[key] = dict(e)
+                order.append(key)
+
+    return [seen[k] for k in order]
+
+
+def format_sum(entries: list[dict]) -> str:
+    """Return clean card-grouped TAB-separated output ready for Excel paste."""
     if not entries:
         return "No entries for today."
 
@@ -43,32 +70,31 @@ def format_sum(entries: list[dict]) -> str:
     sections: list[str] = []
 
     for card in ordered:
-        lines = [card]
-        for e in groups[card]:
+        merged = _merge_normals(groups[card])
+        lines  = [card]
+        for e in merged:
             if not e["is_installment"]:
-                # col1=merchant  col2=(blank)  col3=amount
                 row = e["merchant"] + TAB + TAB + _fmt(e["amount"])
                 lines.append(row)
             else:
-                # All months on ONE line — 3 cols per month joined by TAB
                 merchant = e["merchant"]
                 full     = _fmt(e["full_amount"])
                 monthly  = _fmt(e["monthly_amount"])
                 n        = e["months"]
-                month_groups = []
-                for mo in range(1, n + 1):
-                    month_groups.append(
-                        f"{merchant} {mo}/{n}" + TAB + full + TAB + monthly
-                    )
-                row = TAB.join(month_groups)
-                lines.append(row)
+                month_groups = [
+                    f"{merchant} {mo}/{n}" + TAB + full + TAB + monthly
+                    for mo in range(1, n + 1)
+                ]
+                lines.append(TAB.join(month_groups))
         sections.append("\n".join(lines))
 
     return "\n\n".join(sections)
 
 
 def format_today(entries: list[dict]) -> str:
-    """Human-readable /today summary with totals per card."""
+    """Human-readable /today summary with totals per card.
+    Normal entries with the same merchant are merged and shown with count.
+    """
     if not entries:
         return "No entries today."
 
@@ -89,12 +115,21 @@ def format_today(entries: list[dict]) -> str:
     grand_total = 0.0
 
     for card in ordered:
+        # Count raw entries before merging for display
+        raw_counts: dict[str, int] = {}
+        for e in groups[card]:
+            if not e["is_installment"]:
+                raw_counts[e["merchant"]] = raw_counts.get(e["merchant"], 0) + 1
+
+        merged = _merge_normals(groups[card])
         lines.append(card)
         card_total = 0.0
-        for i, e in enumerate(groups[card], 1):
+        for i, e in enumerate(merged, 1):
             if not e["is_installment"]:
-                amt = e["amount"]
-                lines.append(f"  {i}. {e['merchant']}  {_fmt(amt)}")
+                amt   = e["amount"]
+                count = raw_counts.get(e["merchant"], 1)
+                count_str = f" ×{count}" if count > 1 else ""
+                lines.append(f"  {i}. {e['merchant']}{count_str}  {_fmt(amt)}")
             else:
                 amt = e["monthly_amount"]
                 lines.append(
